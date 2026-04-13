@@ -1,0 +1,53 @@
+# FlowHelm Agent Container
+#
+# Debian slim + Node.js 22 + Claude Code CLI + Agent SDK + standard tools.
+# Warm container pattern: CMD sleep infinity, messages via podman exec.
+# Supports both CLI runtime (claude -p) and SDK runtime (sdk-runner.js).
+#
+# Build: podman build -f Containerfile.agent -t flowhelm-agent:latest .
+
+FROM node:22-slim
+
+# Install standard tools (git, curl, jq for Claude Code)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    jq \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI globally (provides the `claude` binary for CLI runtime)
+RUN npm install -g @anthropic-ai/claude-code
+
+# Replace node user (uid 1000) with flowhelm so UID matches host with --userns=keep-id
+RUN userdel -r node 2>/dev/null; useradd -m -s /bin/bash -u 1000 flowhelm
+
+# Create workspace and required directories
+RUN mkdir -p /workspace/ipc /workspace/config /home/flowhelm/.claude \
+    && chown -R flowhelm:flowhelm /workspace /home/flowhelm/.claude
+
+# Install Agent SDK as a local dependency in /workspace (for SDK runtime).
+# The SDK is ESM-only and must be resolvable from /workspace/sdk-runner.js
+# via standard Node.js module resolution (node_modules/).
+COPY sdk-package.json /workspace/package.json
+RUN cd /workspace && npm install --omit=dev 2>&1 | tail -1
+
+# Copy stdio-to-UDS bridge script (MCP memory access for CLI runtime)
+COPY stdio-to-uds-bridge.cjs /workspace/stdio-to-uds-bridge.cjs
+
+# Copy SDK runner script (Agent SDK execution for SDK runtime)
+COPY sdk-runner.js /workspace/sdk-runner.js
+
+# Copy built-in skills
+COPY skills/ /workspace/.claude/skills/
+
+# Set ownership
+RUN chown -R flowhelm:flowhelm /workspace
+
+# Switch to non-root user
+USER flowhelm
+
+WORKDIR /workspace
+
+# Warm container pattern: keep alive, process messages via podman exec
+CMD ["sleep", "infinity"]

@@ -1,0 +1,29 @@
+#:schema node_modules/wrangler/config-schema.json
+
+name = "flowhelm-bridge"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+
+# ─── KV Namespace Bindings ───────────────────────────────────────────────────
+# Create with:
+#   wrangler kv namespace create SESSIONS
+#   wrangler kv namespace create SESSIONS --preview
+#
+# Then paste the IDs below.
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "REPLACE_WITH_PRODUCTION_KV_ID"
+preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+
+# ─── Environment Variables ───────────────────────────────────────────────────
+
+[vars]
+BASE_URL = "https://flowhelm.to"
+
+# ─── Custom Domain (optional) ───────────────────────────────────────────────
+# Uncomment after adding domain in Cloudflare dashboard:
+#
+# [[routes]]
+# pattern = "flowhelm.to/*"
+# zone_name = "flowhelm.to"

@@ -1,0 +1,35 @@
+# Per-user PostgreSQL 18 + pgvector container.
+#
+# Alpine-based, ~250-280 MB. One container per FlowHelm user,
+# running on the user's isolated Podman network. No external
+# internet access — only the orchestrator and credential proxy
+# can reach it.
+#
+# Build:
+#   podman build -t flowhelm-db:latest -f Containerfile.db .
+#
+# Run (managed by PostgresContainerManager):
+#   podman run -d \
+#     --name flowhelm-db-{username} \
+#     --network flowhelm-network-{username} \
+#     --memory 256m \
+#     --read-only \
+#     --tmpfs /tmp:size=64m \
+#     --tmpfs /run/postgresql:size=8m \
+#     --volume ~/.flowhelm/data/pg:/var/lib/postgresql/data:Z \
+#     --env POSTGRES_USER=flowhelm \
+#     --env POSTGRES_DB=flowhelm \
+#     --env POSTGRES_PASSWORD={generated} \
+#     --security-opt no-new-privileges \
+#     flowhelm-db:latest
+
+FROM pgvector/pgvector:0.8.2-pg18
+
+# Custom configuration tuned for per-user workload
+COPY postgresql.conf /etc/postgresql/postgresql.conf
+
+# Enable pgvector on database creation
+COPY init-extensions.sql /docker-entrypoint-initdb.d/01-extensions.sql
+
+# Use our custom config
+CMD ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]

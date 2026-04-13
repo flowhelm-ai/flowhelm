@@ -1,0 +1,80 @@
+name: Build container images
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag (e.g. 0.1.0)'
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  ORG: flowhelm-ai
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: flowhelm-agent
+            file: container-image/Containerfile.agent
+            context: container-image
+          - name: flowhelm-proxy
+            file: container-image/Containerfile.proxy
+            context: .
+          - name: flowhelm-channel
+            file: container-image/Containerfile.channel
+            context: .
+          - name: flowhelm-service
+            file: container-image/Containerfile.service
+            context: .
+          - name: flowhelm-db
+            file: container-image/Containerfile.db
+            context: container-image
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            # Strip 'v' prefix from tag: v0.1.0 -> 0.1.0
+            echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.file }}
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.ORG }}/${{ matrix.image.name }}:${{ steps.version.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.ORG }}/${{ matrix.image.name }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

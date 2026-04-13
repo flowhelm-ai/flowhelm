@@ -1,0 +1,39 @@
+# Auth Bridge relay service — minimal Alpine + Node.js
+# Self-hostable at flowhelm.to for headless VM authentication.
+#
+# Build:  docker build -t flowhelm-bridge:latest .
+# Run:    docker run -p 3456:3456 -e BASE_URL=https://flowhelm.to flowhelm-bridge:latest
+#
+# Coolify: set build context to services/auth-bridge/
+
+FROM node:22-alpine AS builder
+
+WORKDIR /build
+
+COPY package.json tsconfig.json ./
+RUN npm install
+
+COPY *.ts ./
+RUN npx tsc
+
+FROM node:22-alpine
+
+RUN addgroup -g 10001 -S bridge && \
+    adduser -u 10001 -S bridge -G bridge
+
+WORKDIR /app
+
+COPY --from=builder /build/dist ./
+COPY static ./static
+
+USER bridge
+
+ENV PORT=3456
+ENV NODE_ENV=production
+
+EXPOSE 3456
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -q --spider http://localhost:3456/health || exit 1
+
+CMD ["node", "server.js"]

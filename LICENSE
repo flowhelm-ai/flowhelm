@@ -1,0 +1,66 @@
+The FlowHelm License
+
+Copyright (c) 2026 FlowHelm
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+1. The above copyright notice and this permission notice shall be included
+   in all copies or substantial portions of the Software.
+
+2. Usage Limitation. You may use the Software in production with up to
+   two (2) managed user accounts at no cost. A "managed user account" is
+   any account provisioned through the Software's user management system
+   (e.g., `flowhelm admin add-user`). The administrative account used to
+   install, configure, and manage the system does not count as a managed
+   user account.
+
+   Use of the Software with three (3) or more managed user accounts
+   requires a commercial license obtained from the Licensor. Contact
+   license@flowhelm.ai for commercial licensing.
+
+3. Hosted and Embedded Use. The Software may be used commercially,
+   including as a backend service within your own organization. However,
+   unless explicitly authorized by the Licensor in writing, you may not:
+
+   a. Use the Software source code to provide a hosted or managed service
+      to third parties.
+
+   b. Embed the Software (in whole or substantial part) as a component of
+      a product or service that is sold, licensed, or otherwise
+      commercially distributed to third parties.
+
+   This restriction applies to offering the Software as a SaaS platform,
+   a managed service, or as an integrated component within another
+   commercial offering. Internal use within a single organization
+   (including multiple workspaces) does not require a commercial license,
+   provided the managed user account limit in Section 2 is observed.
+
+4. Logo and Copyright. In the process of using the Software's frontend
+   or web interface, you may not remove or modify the FlowHelm logo or
+   copyright information. This restriction does not apply to uses of the
+   Software that do not involve its frontend.
+
+   For the purposes of this license, the "frontend" includes all
+   components located in the `web/` directory when running from source
+   code, or the "web" container image when running with Podman.
+
+5. Contributor Terms. As a contributor, you agree that:
+
+   a. The Licensor may adjust the terms of this license to be more strict
+      or more permissive as deemed necessary.
+
+   b. Your contributed code may be used for commercial purposes, including
+      but not limited to cloud-hosted business operations by the Licensor.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

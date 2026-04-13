@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment and credentials
+.env
+.env.*
+*.pem
+*.key
+*.enc
+credentials.json
+token.json
+service-account.json
+TEST-CREDENTIALS.md
+
+# Local reference directories (never committed)
+r/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test coverage
+coverage/
+
+# Logs
+*.log
+logs/
+
+# SQLite databases (user data)
+*.db
+!Containerfile.db
+*.sqlite
+*.sqlite3
+
+# Container images
+*.tar
+
+# npm pack artifacts
+*.tgz
+
+# whisper.cpp models
+*.bin
+models/

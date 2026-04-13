@@ -1,0 +1,15 @@
+{
+  "name": "flowhelm-auth-bridge",
+  "version": "0.1.0",
+  "description": "FlowHelm Auth Bridge — self-hostable relay for headless VM authentication",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "npx tsx server.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

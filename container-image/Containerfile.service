@@ -1,0 +1,98 @@
+# FlowHelm Service Container
+#
+# Always-on per-user container for local media inference workloads.
+# Runs on the per-user Podman network alongside proxy and agent containers.
+#
+# Current capabilities:
+#   - STT: whisper.cpp with large-v3-turbo GGML model (~1.6 GB)
+#   - Vision: defined but not installed (pass-through to Claude agent)
+#   - TTS: stub for future implementation
+#
+# Uses a 3-stage build:
+#   1. TypeScript compilation (Node.js builder)
+#   2. whisper.cpp compilation (Alpine C++ builder) — cached after first build
+#   3. Minimal production image (Node.js + whisper-cli + shared libs)
+#
+# Security properties:
+#   - Runs as non-root user (uid 1000) with --userns=keep-id
+#   - no-new-privileges security option
+#   - /models and /downloads mounted read-only
+#   - Writable tmpfs: /tmp (100m)
+#
+# Build:
+#   podman build -f container-image/Containerfile.service -t flowhelm-service:latest .
+#
+# Model setup (run once before first use):
+#   mkdir -p ~/.flowhelm/models
+#   curl -L -o ~/.flowhelm/models/ggml-small.bin \
+#     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
+
+# ─── Stage 1: TypeScript build ─────────────────────────────────────────────
+
+FROM node:22-alpine AS ts-builder
+
+WORKDIR /build
+
+COPY src/service/types.ts src/service/
+COPY src/service/stt-provider.ts src/service/
+COPY src/service/openai-stt-provider.ts src/service/
+COPY src/service/service-server.ts src/service/
+COPY src/service/main.ts src/service/
+COPY tsconfig.json .
+COPY container-image/service-package.json package.json
+
+# Service has zero runtime npm deps — only needs typescript + @types/node for build
+RUN npm install --ignore-scripts && \
+    npx tsc --target ES2022 --module nodenext --moduleResolution nodenext \
+      --esModuleInterop --strict --skipLibCheck \
+      --outDir /build/dist --rootDir src src/service/*.ts
+
+# ─── Stage 2: whisper.cpp build ────────────────────────────────────────────
+# This stage is cached by Podman/Docker layer caching. After the first build,
+# changes to TypeScript source do NOT trigger a recompile of whisper.cpp.
+
+FROM alpine:3.21 AS whisper-builder
+
+RUN apk add --no-cache build-base cmake git libstdc++ && \
+    git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp && \
+    cd /tmp/whisper.cpp && \
+    cmake -B build -DGGML_NO_METAL=ON -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build build --config Release -j$(nproc) --target whisper-cli
+
+# ─── Stage 3: Production ───────────────────────────────────────────────────
+
+FROM node:22-alpine
+
+# Runtime dependencies for whisper.cpp shared libraries
+# libgomp = OpenMP runtime (used by ggml-cpu for multi-threaded inference)
+# ffmpeg  = audio format conversion (OGG/Opus → WAV for whisper-cli)
+RUN apk add --no-cache libstdc++ libgcc libgomp ffmpeg
+
+# Copy whisper-cli binary and its shared libraries from the builder
+COPY --from=whisper-builder /tmp/whisper.cpp/build/bin/whisper-cli /usr/local/bin/whisper-cli
+COPY --from=whisper-builder /tmp/whisper.cpp/build/src/libwhisper.so* /usr/local/lib/
+COPY --from=whisper-builder /tmp/whisper.cpp/build/ggml/src/libggml*.so* /usr/local/lib/
+
+# Update shared library cache
+RUN ldconfig /usr/local/lib 2>/dev/null || true
+
+# Create directories for models and app
+RUN mkdir -p /models /downloads /app && \
+    chown -R node:node /models /downloads /app
+
+WORKDIR /app
+
+# Copy built service code (zero runtime npm deps — pure Node.js built-ins)
+COPY --from=ts-builder /build/dist/service/ ./
+
+# Run as node user (uid 1000)
+USER node
+
+# Service server listens on this port
+EXPOSE 8787
+
+# Health check: GET /healthz
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
+  CMD node -e "const h=require('http');const r=h.get('http://localhost:' + (process.env.SERVICE_PORT||8787) + '/healthz',s=>{process.exit(s.statusCode===200?0:1)});r.on('error',()=>process.exit(1))"
+
+CMD ["node", "main.js"]

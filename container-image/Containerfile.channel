@@ -1,0 +1,101 @@
+# FlowHelm Channel Container
+#
+# Unified, always-on per-user container for all channel adapters
+# (Telegram, Gmail, future WhatsApp/Slack). Runs on the per-user
+# Podman network alongside proxy, service, and agent containers.
+#
+# Responsibilities:
+#   - Inbound: receive messages via adapters, write to PostgreSQL
+#   - Outbound: HTTP API for orchestrator to send messages
+#   - Credentials: decrypt channel secrets from credentials.enc
+#
+# Security properties:
+#   - Runs as non-root user (uid 1000) with --userns=keep-id
+#   - no-new-privileges security option
+#   - Read-only root filesystem
+#   - /secrets/credentials.enc mounted RW (WhatsApp auth state writes back)
+#   - Writable tmpfs: /tmp (50m)
+#
+# Build:
+#   podman build -f container-image/Containerfile.channel -t flowhelm-channel:latest .
+
+# ─── Stage 1: TypeScript build ─────────────────────────────────────────────
+
+FROM node:22-alpine AS ts-builder
+
+# git is required for @whiskeysockets/baileys (git-based transitive dependency)
+RUN apk add --no-cache git
+
+WORKDIR /build
+
+# Copy source files needed for channel container.
+# NOTE: Do NOT use src/channels/*.ts glob — it includes channel-manager.ts and
+# channel-client.ts which are orchestrator-side files with container/ imports.
+COPY src/channels/main.ts src/channels/channel-db.ts src/channels/channel-server.ts src/channels/
+COPY src/channels/channel-types.ts src/channels/credential-reader.ts src/channels/
+COPY src/channels/telegram/ src/channels/telegram/
+COPY src/channels/gmail/ src/channels/gmail/
+COPY src/channels/whatsapp/ src/channels/whatsapp/
+COPY src/orchestrator/types.ts src/orchestrator/
+COPY src/proxy/credential-store.ts src/proxy/credential-schema.ts src/proxy/ca-manager.ts src/proxy/
+COPY tsconfig.json .
+COPY container-image/channel-package.json package.json
+
+RUN npm install --ignore-scripts && \
+    npx tsc --target ES2022 --module nodenext --moduleResolution nodenext \
+      --esModuleInterop --strict --skipLibCheck \
+      --outDir /build/dist --rootDir src \
+      src/channels/main.ts src/channels/channel-db.ts src/channels/channel-server.ts \
+      src/channels/channel-types.ts src/channels/credential-reader.ts \
+      src/channels/telegram/*.ts src/channels/gmail/*.ts src/channels/whatsapp/*.ts \
+      src/orchestrator/types.ts \
+      src/proxy/credential-store.ts src/proxy/credential-schema.ts src/proxy/ca-manager.ts && \
+    rm -rf node_modules && \
+    npm install --omit=dev --ignore-scripts
+
+# ─── Stage 2: Download gws CLI ───────────────────────────────────────────
+
+FROM alpine:3.20 AS gws-download
+
+RUN apk add --no-cache curl tar && \
+    GWS_VERSION="v0.22.5" && \
+    ARCH=$(uname -m) && \
+    case "$ARCH" in \
+      x86_64)  GWS_ARCH="x86_64-unknown-linux-musl" ;; \
+      aarch64) GWS_ARCH="aarch64-unknown-linux-musl" ;; \
+      *)       echo "Unsupported arch: $ARCH" && exit 1 ;; \
+    esac && \
+    curl -sL "https://github.com/googleworkspace/cli/releases/download/${GWS_VERSION}/google-workspace-cli-${GWS_ARCH}.tar.gz" \
+      -o /tmp/gws.tar.gz && \
+    tar -xzf /tmp/gws.tar.gz -C /usr/local/bin/ && \
+    chmod +x /usr/local/bin/gws && \
+    rm /tmp/gws.tar.gz
+
+# ─── Stage 3: Production ──────────────────────────────────────────────────
+
+FROM node:22-alpine
+
+# Create directories
+RUN mkdir -p /app /secrets /downloads /var/log/flowhelm && \
+    chown -R node:node /app /downloads /var/log/flowhelm
+
+# Copy gws binary from download stage
+COPY --from=gws-download /usr/local/bin/gws /usr/local/bin/gws
+
+WORKDIR /app
+
+# Copy built channel code and production dependencies
+COPY --from=ts-builder /build/dist/ ./
+COPY --from=ts-builder /build/node_modules ./node_modules/
+
+# Run as node user (uid 1000)
+USER node
+
+# Channel server listens on this port
+EXPOSE 9000
+
+# Health check: GET /healthz
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
+  CMD node -e "const h=require('http');const r=h.get('http://localhost:' + (process.env.CHANNEL_PORT||9000) + '/healthz',s=>{process.exit(s.statusCode===200?0:1)});r.on('error',()=>process.exit(1))"
+
+CMD ["node", "channels/main.js"]

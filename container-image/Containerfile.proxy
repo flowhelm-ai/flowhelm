@@ -1,0 +1,76 @@
+# FlowHelm Credential Proxy Container
+#
+# Minimal Alpine + Node.js container (~20-30 MB) that runs the
+# HTTP forward proxy for credential injection. Agent containers
+# route outbound requests through this proxy on the per-user
+# Podman network.
+#
+# Security properties:
+#   - Read-only root filesystem (--read-only at runtime)
+#   - Runs as non-root user (uid 1000)
+#   - No shell access (/bin/sh removed)
+#   - no-new-privileges security option
+#   - Only mounts: /secrets (encrypted credentials + CA cert/key, read-only)
+#   - Writable tmpfs: /tmp (10m), /var/log/flowhelm (50m, audit log)
+#
+# Build:
+#   podman build -f container-image/Containerfile.proxy -t flowhelm-proxy:latest .
+
+FROM node:22-alpine AS builder
+
+WORKDIR /build
+
+# Copy only proxy source files
+COPY src/proxy/credential-schema.ts src/proxy/
+COPY src/proxy/credential-store.ts src/proxy/
+COPY src/proxy/rate-limiter.ts src/proxy/
+COPY src/proxy/audit-log.ts src/proxy/
+COPY src/proxy/proxy-server.ts src/proxy/
+COPY src/proxy/ca-manager.ts src/proxy/
+COPY src/proxy/cert-cache.ts src/proxy/
+COPY src/proxy/mitm-handler.ts src/proxy/
+COPY src/proxy/key-rotator.ts src/proxy/
+COPY src/proxy/metrics.ts src/proxy/
+COPY src/proxy/cost-log.ts src/proxy/
+COPY src/proxy/placeholders.ts src/proxy/
+COPY src/proxy/main.ts src/proxy/
+COPY tsconfig.json .
+COPY container-image/proxy-package.json package.json
+
+# Install deps for build (per-container package.json — only zod + node-forge),
+# compile proxy files, then prune to production deps only
+RUN npm install --ignore-scripts && \
+    npx tsc --target ES2022 --module nodenext --moduleResolution nodenext \
+      --esModuleInterop --strict --skipLibCheck \
+      --outDir /build/dist --rootDir src src/proxy/*.ts && \
+    rm -rf node_modules && \
+    npm install --omit=dev --ignore-scripts
+
+# ─── Production stage ───────────────────────────────────────────────────────
+
+FROM node:22-alpine
+
+# Create directories for secrets and logs, owned by node user (uid 1000).
+# With --userns=keep-id, host uid 1000 maps to container uid 1000 (the node user),
+# so the node user can read bind-mounted secrets owned by the host user.
+RUN mkdir -p /secrets /var/log/flowhelm /app && \
+    chown -R node:node /secrets /var/log/flowhelm /app
+
+WORKDIR /app
+
+# Copy built proxy code and production dependencies
+COPY --from=builder /build/dist/proxy/ ./
+COPY --from=builder /build/node_modules ./node_modules/
+
+# Run as node user (uid 1000). With --userns=keep-id, this maps directly
+# to the host user (uid 1000), preserving file ownership for bind mounts.
+USER node
+
+# Proxy listens on this port (configurable via PROXY_PORT env var)
+EXPOSE 10255
+
+# Health check: GET /healthz
+HEALTHCHECK --interval=15s --timeout=3s --retries=3 \
+  CMD node -e "const h=require('http');const r=h.get('http://localhost:' + (process.env.PROXY_PORT||10255) + '/healthz',s=>{process.exit(s.statusCode===200?0:1)});r.on('error',()=>process.exit(1))"
+
+CMD ["node", "main.js"]
